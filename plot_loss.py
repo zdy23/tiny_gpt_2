@@ -7,6 +7,7 @@ df = pd.read_csv("checkpoints/metrics.csv")
 
 
 def moving_average(x, window=50):
+    # 滑动平均：让损失曲线更平滑，方便观察整体趋势
     pad = window // 2
     return np.convolve(np.pad(x, (pad, pad), mode="reflect"), np.ones(window) / window, mode="valid")[:len(x)]
 
@@ -16,18 +17,22 @@ fig, ax = plt.subplots(figsize=(14, 5.5))
 fig.patch.set_facecolor("#fafafa")
 ax.set_facecolor("#fafafa")
 
+# 画原始训练损失（半透明）和平滑后的训练损失
 ax.plot(df["step"], df["train_loss"], label="Train Loss (raw)", alpha=0.20, linewidth=0.6, color="#4C72B0")
 window = max(1, len(df) // 40)
 smooth = moving_average(df["train_loss"].values, window)
 ax.plot(df["step"], smooth, label=f"Train Loss (smooth, w={window})", linewidth=1.6, color="#4C72B0")
+# 画正负一个标准差的波动带
 residuals = df["train_loss"].values - smooth
 ax.fill_between(df["step"], smooth - residuals.std(), smooth + residuals.std(),
                 color="#4C72B0", alpha=0.08, label="+-1sigma band")
 
+# 画验证损失（如果有的话）
 valid_val = df.dropna(subset=["val_loss"])
 if len(valid_val) > 0:
     ax.plot(valid_val["step"], valid_val["val_loss"], color="#C44E52", linewidth=1.2,
             marker="o", markersize=5, label="Val Loss", zorder=5)
+    # 标注最优验证损失的位置
     best_idx = valid_val["val_loss"].idxmin()
     best_row = df.loc[best_idx]
     ax.scatter(best_row["step"], best_row["val_loss"], color="#C44E52", s=120,
@@ -38,6 +43,7 @@ if len(valid_val) > 0:
                 arrowprops=dict(arrowstyle="->", color="#C44E52", lw=1.2),
                 bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#C44E52", alpha=0.8))
 
+# 标注最终的训练损失
 final = df.iloc[-1]
 ax.annotate(f"Final: {final['train_loss']:.4f}", xy=(final["step"], final["train_loss"]),
             xytext=(-120, 30), textcoords="offset points", fontsize=9, color="#4C72B0", fontweight="bold",

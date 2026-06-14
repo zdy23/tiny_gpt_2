@@ -2,7 +2,7 @@ import torch.nn as nn
 
 
 class MLP(nn.Module):
-    """逐位置前馈网络"""
+    # 两层全连接 + GELU 激活，每个位置独立做非线性变换
 
     def __init__(self, d_model, d_ff=None, dropout=0.1):
         super().__init__()

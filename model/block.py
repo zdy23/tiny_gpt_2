@@ -5,7 +5,7 @@ from .mlp import MLP
 
 
 class Block(nn.Module):
-    """Transformer 解码器块: 注意力 + 前馈网络"""
+    # 一个 Transformer 解码器块：先做注意力，再做前馈，每步都有残差连接
 
     def __init__(self, d_model, n_head, d_ff, dropout=0.1):
         super().__init__()
@@ -15,6 +15,8 @@ class Block(nn.Module):
         self.mlp = MLP(d_model, d_ff, dropout)
 
     def forward(self, x):
+        # 注意力子层 + 残差
         x = x + self.attn(self.ln1(x))
+        # 前馈子层 + 残差
         x = x + self.mlp(self.ln2(x))
         return x

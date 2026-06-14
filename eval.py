@@ -52,6 +52,7 @@ def compute_perplexity(model, val_loader, max_batches):
 
 
 def tokenize_file(data_file, max_lines=None):
+    # 逐行读取文件并分词
     tokenizer = Tokenizer()
     tokens, t0 = [], time.time()
     with open(data_file, encoding="utf-8") as f:
@@ -63,7 +64,7 @@ def tokenize_file(data_file, max_lines=None):
 
 
 def load_eval_tokens(args):
-    # 优先从缓存加载，否则重新分词
+    # 优先从缓存加载分词结果，否则重新对原始文本分词
     cache_path = Path(args.token_cache)
     use_cache = args.source == "cache" or (args.source == "auto" and cache_path.exists() and not args.quick)
     if use_cache:
@@ -102,7 +103,9 @@ def load_model(ckpt_path):
     print(f"Checkpoint: {ckpt_path}  step={ckpt.get('step', '?')}  loss={loss:.4f}" if isinstance(loss, (int, float)) else "")
     model = GPT(cfg["vocab_size"], cfg["d_model"], cfg["n_layer"], cfg["n_head"], cfg["d_ff"],
                 cfg["max_seq_len"], dropout=0.0)
+    # 去掉 torch.compile 添加的前缀，并兼容旧版 .emb. 命名
     state_dict = {k.removeprefix("_orig_mod."): v for k, v in ckpt["model_state_dict"].items()}
+    state_dict = {k.replace(".emb.", "."): v for k, v in state_dict.items()}
     model.load_state_dict(state_dict)
     model.eval()
     return model, cfg
@@ -111,18 +114,17 @@ def load_model(ckpt_path):
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--checkpoint", default=None)
-    parser.add_argument("--data-file", default="data/TinyStories-train.txt")
-    parser.add_argument("--token-cache", default="data/tokens_cache.pt")
+    parser.add_argument("--checkpoint", default=None)                          # 手动指定检查点路径
+    parser.add_argument("--data-file", default="data/TinyStories-train.txt")   # 数据文件
+    parser.add_argument("--token-cache", default="data/tokens_cache.pt")       # 分词缓存
     parser.add_argument("--source", choices=["auto", "cache", "text"], default="auto")
-    parser.add_argument("--quick", action="store_true")
-    parser.add_argument("--max-lines", type=int, default=20000)
-    parser.add_argument("--eval-tokens", type=int, default=0)
-    parser.add_argument("--eval-batches", type=int, default=30)
-    parser.add_argument("--batch-size", type=int, default=1)
+    parser.add_argument("--quick", action="store_true")                        # 快速评估模式
+    parser.add_argument("--max-lines", type=int, default=20000)                # 快速模式最多读多少行
+    parser.add_argument("--eval-tokens", type=int, default=0)                  # 评估时使用的 token 数
+    parser.add_argument("--eval-batches", type=int, default=30)                # 评估批次数
+    parser.add_argument("--batch-size", type=int, default=1)                   # 评估批大小
     args = parser.parse_args()
 
-    # 自动选择检查点路径
     best, latest = Path("checkpoints/best.pt"), Path("checkpoints/latest.pt")
     ckpt_path = args.checkpoint or (str(best) if best.exists() else str(latest) if latest.exists() else str(best))
     model, cfg = load_model(ckpt_path)
@@ -130,20 +132,15 @@ def main():
     num_params = sum(p.numel() for p in model.parameters())
 
     print(f"  Parameters: {num_params / 1e6:.1f}M\n")
-    print("=" * 50)
-    print("Perplexity Evaluation")
-    print("=" * 50)
 
-    # 加载 token 并取后 10% 作为验证集
     tokens, source_name = load_eval_tokens(args)
-    split = int(len(tokens) * 0.9)
+    split = int(len(tokens) * 0.9)           # 前 90% 训练，后 10% 验证
     val_tokens = tokens[split:]
     if args.eval_tokens > 0:
         val_tokens = val_tokens[:args.eval_tokens]
     if len(val_tokens) <= max_seq_len:
         raise RuntimeError(f"Only {len(val_tokens):,} val tokens, need > max_seq_len={max_seq_len}.")
 
-    # 均匀采样评估窗口，构造 DataLoader
     num_windows = args.batch_size * args.eval_batches
     starts = build_eval_starts(len(val_tokens), max_seq_len, num_windows)
     print(f"  source={source_name}  total_tokens={len(tokens):,}  eval_windows={len(starts):,}")
